@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Умная теплица — MQTT</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #f0f0f0;
+            --card-bg: #ffffff;
+            --text-color: #2c3e50;
+            --status-bg: #ecf0f1;
+            --btn-primary: #3498db;
+            --btn-warning: #e67e22;
+            --btn-success: #27ae60;
+            --btn-danger: #e74c3c;
+            --shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        [data-theme="dark"] {
+            --bg-color: #1a1a2e;
+            --card-bg: #16213e;
+            --text-color: #e0e0e0;
+            --status-bg: #0f3460;
+            --btn-primary: #0f3460;
+            --btn-warning: #d35400;
+            --btn-success: #27ae60;
+            --btn-danger: #c0392b;
+            --shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 10px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            transition: background 0.3s, color 0.3s;
+        }
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .theme-toggle {
+            background: var(--card-bg);
+            border: none;
+            font-size: 24px;
+            padding: 8px 12px;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+            color: var(--text-color);
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: var(--shadow);
+            transition: background 0.3s;
+        }
+        h2 {
+            margin-top: 0;
+            color: var(--text-color);
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .status-item {
+            background: var(--status-bg);
+            padding: 8px;
+            border-radius: 5px;
+        }
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+        .btn {
+            background: var(--btn-primary);
+            color: #fff;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .btn.small {
+            padding: 8px;
+            font-size: 14px;
+        }
+        .btn.warning { background: var(--btn-warning); }
+        .btn.success { background: var(--btn-success); }
+        .btn.danger { background: var(--btn-danger); }
+        .btn:active { opacity: 0.8; }
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .tab {
+            background: var(--status-bg);
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--text-color);
+        }
+        .tab.active {
+            background: var(--btn-primary);
+            color: #fff;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        canvas {
+            width: 100% !important;
+            height: 250px !important;
+            background: var(--card-bg);
+            border-radius: 8px;
+        }
+        img#photo {
+            max-width: 100%;
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h2>🌱 Умная теплица</h2>
+        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙</button>
+    </div>
+    <div class="tabs">
+        <button class="tab active" data-tab="status">📊 Статус</button>
+        <button class="tab" data-tab="control">🎮 Управление</button>
+        <button class="tab" data-tab="auto">🤖 Автоматика</button>
+        <button class="tab" data-tab="calib">⚙️ Калибровка</button>
+        <button class="tab" data-tab="stats">📈 Статистика</button>
+        <button class="tab" data-tab="graphs">📉 Графики</button>
+        <button class="tab" data-tab="camera">📷 Камера</button>
+    </div>
+
+    <!-- Вкладка статус -->
+    <div id="tab-status" class="tab-content active">
+        <div class="card">
+            <h2>📊 Статус</h2>
+            <div id="status" class="status-grid">
+                <div class="status-item">🌡 Темп: <span id="temp">--</span>°C</div>
+                <div class="status-item">💧 Влажн: <span id="hum">--</span>%</div>
+                <div class="status-item">📊 Давл: <span id="press">--</span> hPa</div>
+                <div class="status-item">🌱 Почва: <span id="soil">--</span>%</div>
+                <div class="status-item">💡 Свет: <span id="light">--</span></div>
+                <div class="status-item">💡 Лампа: <span id="lamp">--</span></div>
+                <div class="status-item">🔄 Серво: <span id="servo">--</span>°</div>
+                <div class="status-item">🤖 Авто: <span id="auto">---</span></div>
+                <div class="status-item">⏰ Время: <span id="time_disp">--</span></div>
+                <div class="status-item">⚠️ Ошибка: <span id="pump_err">OK</span></div>
+            </div>
+            <button class="btn small" onclick="refreshStatus()">🔄 Обновить</button>
+            <button class="btn small" onclick="sendCommand('sync_time')">⏳ Синхр. время</button>
+        </div>
+    </div>
+
+    <!-- Вкладка управление -->
+    <div id="tab-control" class="tab-content">
+        <div class="card">
+            <h2>🎮 Управление</h2>
+            <div class="button-grid">
+                <button class="btn" data-cmd="pump_on">💧 Полив</button>
+                <button class="btn" data-cmd="humid_on">💨 Увл. Вкл</button>
+                <button class="btn" data-cmd="humid_off">💨 Увл. Выкл</button>
+                <button class="btn" data-cmd="light_1">💡 Тёплый</button>
+                <button class="btn" data-cmd="light_2">💡 Холодный</button>
+                <button class="btn" data-cmd="light_3">💡 Оба</button>
+                <button class="btn" data-cmd="light_0">💡 Выкл</button>
+                <button class="btn" data-cmd="brightness_up">🔆 Ярче</button>
+                <button class="btn" data-cmd="brightness_down">🔅 Темнее</button>
+                <button class="btn" data-cmd="servo_0">🔄 0°</button>
+                <button class="btn" data-cmd="servo_90">🔄 90°</button>
+                <button class="btn" data-cmd="servo_180">🔄 180°</button>
+                <button class="btn danger" data-cmd="pump_stop">🛑 Стоп полив</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Вкладка автоматика -->
+    <div id="tab-auto" class="tab-content">
+        <div class="card">
+            <h2>🤖 Автоматизация</h2>
+            <div class="button-grid">
+                <button class="btn" data-cmd="auto_water_toggle">💧 Автополив</button>
+                <button class="btn" data-cmd="auto_humid_toggle">💨 Автоувл.</button>
+                <button class="btn" data-cmd="auto_light_toggle">💡 Автосвет</button>
+                <button class="btn" data-cmd="night_mode_toggle">🌙 Ночной режим</button>
+                <button class="btn success" data-cmd="auto_all_on">🚀 Всё ВКЛ</button>
+                <button class="btn danger" data-cmd="auto_all_off">🛑 Всё ВЫКЛ</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Вкладка калибровка -->
+    <div id="tab-calib" class="tab-content">
+        <div class="card">
+            <h2>⚙️ Калибровка</h2>
+            <div class="button-grid">
+                <button class="btn warning" data-cmd="cal_dry">🌱 Сухая почва</button>
+                <button class="btn warning" data-cmd="cal_wet">💧 Влажная почва</button>
+                <button class="btn" data-cmd="cal_light_type">💡 Тип датчика</button>
+                <button class="btn" data-cmd="cal_light_logic">🔄 Логика цифры</button>
+                <button class="btn warning" data-cmd="cal_analog_dark">🌙 Калибр. ТЕМНО</button>
+                <button class="btn warning" data-cmd="cal_analog_light">☀️ Калибр. СВЕТЛО</button>
+                <button class="btn" data-cmd="cal_analog_reset">🔄 Сброс аналога</button>
+                <button class="btn" data-cmd="cal_analog_test">📊 Тест аналога</button>
+            </div>
+            <hr>
+            <label>Макс. время полива (сек): <input type="number" id="max_pump" min="1" max="60" value="10"></label>
+            <button class="btn" id="setMaxPumpBtn">Сохранить</button>
+            <br><br>
+            <button class="btn success" onclick="exportConfig()">📥 Скачать конфиг</button>
+            <button class="btn warning" onclick="document.getElementById('import_file').click()">📤 Загрузить конфиг</button>
+            <input type="file" id="import_file" accept=".json" style="display:none" onchange="importConfig(this)">
+        </div>
+    </div>
+
+    <!-- Вкладка статистика -->
+    <div id="tab-stats" class="tab-content">
+        <div class="card">
+            <h2>📈 Статистика</h2>
+            <div class="status-grid">
+                <div class="status-item">💧 Полив ручной: <span id="man_water">0</span></div>
+                <div class="status-item">💧 Полив авто: <span id="auto_water">0</span></div>
+                <div class="status-item">💨 Увл. ручной: <span id="man_humid">0</span></div>
+                <div class="status-item">💨 Увл. авто: <span id="auto_humid">0</span></div>
+                <div class="status-item">💡 Свет ручной: <span id="man_light">0</span></div>
+                <div class="status-item">💡 Свет авто: <span id="auto_light">0</span></div>
+                <div class="status-item">🔄 Команд серво: <span id="servo_cmd">0</span></div>
+                <div class="status-item">🌊 Всего поливов: <span id="total_water">0</span></div>
+            </div>
+            <button class="btn danger small" data-cmd="reset_stats">🗑️ Сбросить статистику</button>
+        </div>
+    </div>
+
+    <!-- Вкладка графики -->
+    <div id="tab-graphs" class="tab-content">
+        <div class="card">
+            <h2>📉 Температура и влажность</h2>
+            <canvas id="chart1"></canvas>
+        </div>
+        <div class="card">
+            <h2>🌱 Влажность почвы</h2>
+            <canvas id="chart2"></canvas>
+        </div>
+    </div>
+
+    <!-- Вкладка камера -->
+    <div id="tab-camera" class="tab-content">
+        <div class="card">
+            <h2>📷 Камера</h2>
+            <button class="btn" onclick="takePhoto()">Сделать фото</button>
+            <img id="photo" style="display:none">
+        </div>
+    </div>
+</div>
+
+<script>
+    // ========== MQTT НАСТРОЙКИ (wqtt.ru) ==========
+    const MQTT_HOST = "wss://m4.wqtt.ru:15763/mqtt";
+    const MQTT_USER = "u_0Q5P6M";
+    const MQTT_PASS = "qqOCCLI2";
+    const STATUS_TOPIC = "greenhouse/status";
+    const COMMAND_TOPIC = "greenhouse/command";
+    // Для истории используем отдельный топик (если ESP32 его публикует)
+    const HISTORY_TOPIC = "greenhouse/history";
+
+    let mqttClient = null;
+    let chart1 = null, chart2 = null;
+
+    // Функция подключения MQTT
+    function connectMQTT() {
+        if (mqttClient && mqttClient.connected) return;
+        const options = {
+            username: MQTT_USER,
+            password: MQTT_PASS,
+            clean: true,
+            connectTimeout: 5000,
+            keepalive: 60,
+            clientId: "web_" + Math.random().toString(16).substr(2, 6)
+        };
+        mqttClient = mqtt.connect(MQTT_HOST, options);
+        mqttClient.on('connect', () => {
+            console.log("MQTT connected");
+            mqttClient.subscribe(STATUS_TOPIC, {qos:0});
+            mqttClient.subscribe(HISTORY_TOPIC, {qos:0});
+        });
+        mqttClient.on('message', (topic, message) => {
+            try {
+                const data = JSON.parse(message.toString());
+                if (topic === STATUS_TOPIC) updateUI(data);
+                if (topic === HISTORY_TOPIC && data.history) loadHistoryData(data.history);
+            } catch(e) {}
+        });
+        mqttClient.on('error', (e) => console.warn("MQTT error", e));
+        mqttClient.on('close', () => setTimeout(connectMQTT, 3000));
+    }
+
+    // Обновление интерфейса из статуса
+    function updateUI(e) {
+        if (e.temp !== undefined) document.getElementById('temp').innerText = e.temp.toFixed(1);
+        if (e.hum !== undefined) document.getElementById('hum').innerText = e.hum.toFixed(1);
+        if (e.pressure !== undefined) document.getElementById('press').innerText = e.pressure.toFixed(1);
+        if (e.soil_percent !== undefined) document.getElementById('soil').innerText = e.soil_percent + '% (' + (e.soil_raw||'--') + ')';
+        if (e.light_type == 0) {
+            document.getElementById('light').innerText = (e.light_state == 1) ? 'ТЕМНО' : 'СВЕТЛО';
+        } else {
+            document.getElementById('light').innerText = 'RAW:' + (e.light_raw||0) + ' (' + (e.light_brightness||0) + '%)';
+        }
+        let lampText = 'Выкл';
+        if (e.lamp_mode == 1) lampText = 'Тёплый ' + (e.lamp_brightness||80) + '%';
+        else if (e.lamp_mode == 2) lampText = 'Холодный ' + (e.lamp_brightness||80) + '%';
+        else if (e.lamp_mode == 3) lampText = 'Оба ' + (e.lamp_brightness||80) + '%';
+        document.getElementById('lamp').innerText = lampText;
+        document.getElementById('servo').innerText = e.servo_angle !== undefined ? e.servo_angle : '--';
+        let modes = [];
+        if (e.auto_watering) modes.push('💧');
+        if (e.auto_humidifying) modes.push('💨');
+        if (e.auto_lighting) modes.push('💡');
+        if (e.night_mode) modes.push('🌙');
+        document.getElementById('auto').innerText = modes.length ? modes.join(' ') : 'выкл';
+        document.getElementById('time_disp').innerText = e.time || '--';
+        document.getElementById('pump_err').innerText = e.pump_error ? '⚠️ Превышено время!' : 'OK';
+        if (e.manual_water !== undefined) document.getElementById('man_water').innerText = e.manual_water;
+        if (e.auto_water !== undefined) document.getElementById('auto_water').innerText = e.auto_water;
+        if (e.manual_humid !== undefined) document.getElementById('man_humid').innerText = e.manual_humid;
+        if (e.auto_humid !== undefined) document.getElementById('auto_humid').innerText = e.auto_humid;
+        if (e.manual_light !== undefined) document.getElementById('man_light').innerText = e.manual_light;
+        if (e.auto_light !== undefined) document.getElementById('auto_light').innerText = e.auto_light;
+        if (e.servo_cmds !== undefined) document.getElementById('servo_cmd').innerText = e.servo_cmds;
+        let total = (e.manual_water||0) + (e.auto_water||0);
+        document.getElementById('total_water').innerText = total;
+        if (e.max_pump_time !== undefined) document.getElementById('max_pump').value = e.max_pump_time;
+    }
+
+    // Отправка команды через MQTT
+    function sendCommand(cmd, value = null) {
+        if (!mqttClient || !mqttClient.connected) {
+            alert("MQTT не подключен!");
+            return;
+        }
+        let payload = cmd;
+        if (value !== null) payload = cmd + ":" + value;
+        mqttClient.publish(COMMAND_TOPIC, payload, {qos:0});
+        console.log("Команда отправлена:", payload);
+        // Для некоторых команд (set_max_pump) используем value
+        if (cmd === 'set_max_pump' && value !== null) {
+            // дополнительно можно отправить обычную команду
+        }
+    }
+
+    // Принудительное обновление (просто запрашиваем статус – но MQTT сам присылает)
+    function refreshStatus() {
+        // Можно отправить команду "status", если она предусмотрена. Обычно ESP публикует статус сама.
+        console.log("Refresh requested — данные будут получены по MQTT");
+    }
+
+    // Функции для калибровки и конфигурации
+    function exportConfig() {
+        alert("Экспорт конфигурации работает только через HTTP. В MQTT версии эта функция не реализована. Можно вернуться к HTTP для калибровки.");
+        // Для полной функциональности нужно оставить HTTP эндпоинты на ESP32, но тогда доступ будет локальным.
+    }
+    function importConfig(fileInput) {
+        alert("Импорт конфигурации в MQTT версии не поддерживается. Используйте локальный HTTP доступ.");
+    }
+    function takePhoto() {
+        // Камера работает через HTTP, поэтому для глобального доступа нужен туннель
+        const img = document.getElementById('photo');
+        img.src = '/photo?' + new Date().getTime();
+        img.style.display = 'block';
+    }
+
+    // Графики (загрузка истории)
+    function loadHistoryData(historyArray) {
+        // historyArray: массив объектов {t, temp, hum, soil}
+        if (!historyArray || !historyArray.length) return;
+        const labels = historyArray.map(p => new Date(p.t*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
+        const temps = historyArray.map(p => p.temp);
+        const hums = historyArray.map(p => p.hum);
+        const soils = historyArray.map(p => p.soil);
+        if (chart1) chart1.destroy();
+        if (chart2) chart2.destroy();
+        const ctx1 = document.getElementById('chart1').getContext('2d');
+        chart1 = new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'Температура °C', data: temps, borderColor: 'red', yAxisID: 'y' },
+                    { label: 'Влажность %', data: hums, borderColor: 'blue', yAxisID: 'y1' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { type: 'linear', position: 'left' },
+                    y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false } }
+                }
+            }
+        });
+        const ctx2 = document.getElementById('chart2').getContext('2d');
+        chart2 = new Chart(ctx2, {
+            type: 'line',
+            data: { labels: labels, datasets: [{ label: 'Влажность почвы %', data: soils, borderColor: 'green' }] },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+    }
+
+    // Тёмная тема (копия из оригинала)
+    function toggleTheme() {
+        const body = document.body;
+        const theme = body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        body.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+        updateThemeIcon(theme);
+    }
+    function updateThemeIcon(theme) {
+        document.getElementById('themeToggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+    }
+    function loadTheme() {
+        const theme = localStorage.getItem('theme') || 'light';
+        document.body.setAttribute('data-theme', theme);
+        updateThemeIcon(theme);
+    }
+    loadTheme();
+
+    // Переключение вкладок
+    function showTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.getElementById(`tab-${tabId}`).classList.add('active');
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelector(`.tab[data-tab="${tabId}"]`).classList.add('active');
+        if (tabId === 'graphs') {
+            // При необходимости можно запросить историю по MQTT
+            // mqttClient.publish("greenhouse/request_history", "1");
+        }
+    }
+
+    // Обработчики кнопок (data-cmd)
+    function bindCommands() {
+        document.querySelectorAll('[data-cmd]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const cmd = btn.getAttribute('data-cmd');
+                if (cmd) sendCommand(cmd);
+            });
+        });
+        document.getElementById('setMaxPumpBtn')?.addEventListener('click', () => {
+            const val = document.getElementById('max_pump').value;
+            sendCommand('set_max_pump', val);
+        });
+        // Переназначаем старые onclick обработчики, чтобы избежать конфликтов
+        document.querySelectorAll('.tab').forEach(tab => {
+            const tabId = tab.getAttribute('data-tab');
+            if (tabId) tab.onclick = () => showTab(tabId);
+        });
+    }
+
+    // Старт
+    window.addEventListener('DOMContentLoaded', () => {
+        connectMQTT();
+        bindCommands();
+        // Инициализация пустых графиков (пока нет истории)
+        const ctx1 = document.getElementById('chart1').getContext('2d');
+        chart1 = new Chart(ctx1, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true } });
+        const ctx2 = document.getElementById('chart2').getContext('2d');
+        chart2 = new Chart(ctx2, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true } });
+    });
+</script>
+</body>
+</html>
