@@ -273,7 +273,8 @@
 
 <script>
     // ========== MQTT НАСТРОЙКИ (wqtt.ru) ==========
-    const MQTT_HOST = "ws://193.187.93.181:8083";
+// ========== НАСТРОЙКИ MQTT (через WSS) ==========
+    const MQTT_HOST = "wss://mqtt.esp32s3-cam.ru";   // защищённый WebSocket
     const MQTT_USER = "greenhouse";
     const MQTT_PASS = "leontop3445";
     const STATUS_TOPIC = "greenhouse/status";
