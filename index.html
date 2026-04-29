@@ -380,10 +380,9 @@
         alert("Импорт конфигурации в MQTT версии не поддерживается. Используйте локальный HTTP доступ.");
     }
     function takePhoto() {
-        // Камера работает через HTTP, поэтому для глобального доступа нужен туннель
-        const img = document.getElementById('photo');
-        img.src = '/photo?' + new Date().getTime();
-        img.style.display = 'block';
+        const photoUrl = "https://camera.esp32s3-cam.ru/photo?" + new Date().getTime();
+        document.getElementById('photo').src = photoUrl;
+        document.getElementById('photo').style.display = 'block';
     }
 
     // Графики (загрузка истории)
