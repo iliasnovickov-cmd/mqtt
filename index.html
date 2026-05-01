@@ -272,9 +272,8 @@
 </div>
 
 <script>
-    // ========== MQTT НАСТРОЙКИ (wqtt.ru) ==========
-// ========== НАСТРОЙКИ MQTT (через WSS) ==========
-    const MQTT_HOST = "wss://mqtt.esp32s3-cam.ru";   // защищённый WebSocket
+    // ========== MQTT НАСТРОЙКИ ==========
+    const MQTT_HOST = "wss://mqtt.esp32s3-cam.ru";
     const MQTT_USER = "greenhouse";
     const MQTT_PASS = "leontop3445";
     const STATUS_TOPIC = "greenhouse/status";
@@ -283,6 +282,13 @@
 
     let mqttClient = null;
     let chart1 = null, chart2 = null;
+
+    // Массивы для хранения истории (максимум 30 точек)
+    let historyLabels = [];
+    let historyTemp = [];
+    let historyHum = [];
+    let historySoil = [];
+    const MAX_HISTORY = 30;
 
     // Функция подключения MQTT
     function connectMQTT() {
@@ -304,12 +310,94 @@
         mqttClient.on('message', (topic, message) => {
             try {
                 const data = JSON.parse(message.toString());
-                if (topic === STATUS_TOPIC) updateUI(data);
-                if (topic === HISTORY_TOPIC && data.history) loadHistoryData(data.history);
+                if (topic === STATUS_TOPIC) {
+                    updateUI(data);
+                    addToHistory(data);
+                }
+                if (topic === HISTORY_TOPIC && data.history) {
+                    loadHistoryData(data.history);
+                }
             } catch(e) {}
         });
         mqttClient.on('error', (e) => console.warn("MQTT error", e));
         mqttClient.on('close', () => setTimeout(connectMQTT, 3000));
+    }
+
+    // Добавление полученных данных в историю и обновление графиков
+    function addToHistory(data) {
+        const now = new Date();
+        const timeLabel = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+        historyLabels.push(timeLabel);
+        if (data.temp !== undefined) historyTemp.push(data.temp);
+        if (data.hum !== undefined) historyHum.push(data.hum);
+        if (data.soil_percent !== undefined) historySoil.push(data.soil_percent);
+        
+        // Ограничиваем длину
+        while (historyLabels.length > MAX_HISTORY) {
+            historyLabels.shift();
+            historyTemp.shift();
+            historyHum.shift();
+            historySoil.shift();
+        }
+        updateCharts();
+    }
+
+    // Обновление графиков на основе текущих массивов
+    function updateCharts() {
+        if (!chart1) return;
+        chart1.data.labels = historyLabels;
+        chart1.data.datasets[0].data = [...historyTemp];
+        chart1.data.datasets[1].data = [...historyHum];
+        chart1.update();
+        
+        if (chart2) {
+            chart2.data.labels = historyLabels;
+            chart2.data.datasets[0].data = [...historySoil];
+            chart2.update();
+        }
+    }
+
+    // Инициализация графиков
+    function initCharts() {
+        const ctx1 = document.getElementById('chart1').getContext('2d');
+        chart1 = new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Температура °C', data: [], borderColor: 'red', yAxisID: 'y' },
+                    { label: 'Влажность %', data: [], borderColor: 'blue', yAxisID: 'y1' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { title: { display: true, text: '°C' } },
+                    y1: { title: { display: true, text: '%' }, position: 'right', grid: { drawOnChartArea: false } }
+                }
+            }
+        });
+        const ctx2 = document.getElementById('chart2').getContext('2d');
+        chart2 = new Chart(ctx2, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Влажность почвы %', data: [], borderColor: 'green' }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 0, max: 100 } } }
+        });
+    }
+
+    // Загрузка полной истории (если ESP32 присылает массив)
+    function loadHistoryData(historyArray) {
+        if (!historyArray || !historyArray.length) return;
+        const labels = historyArray.map(p => new Date(p.t*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
+        const temps = historyArray.map(p => p.temp);
+        const hums = historyArray.map(p => p.hum);
+        const soils = historyArray.map(p => p.soil);
+        historyLabels = labels.slice(-MAX_HISTORY);
+        historyTemp = temps.slice(-MAX_HISTORY);
+        historyHum = hums.slice(-MAX_HISTORY);
+        historySoil = soils.slice(-MAX_HISTORY);
+        updateCharts();
     }
 
     // Обновление интерфейса из статуса
@@ -359,68 +447,25 @@
         if (value !== null) payload = cmd + ":" + value;
         mqttClient.publish(COMMAND_TOPIC, payload, {qos:0});
         console.log("Команда отправлена:", payload);
-        // Для некоторых команд (set_max_pump) используем value
-        if (cmd === 'set_max_pump' && value !== null) {
-            // дополнительно можно отправить обычную команду
-        }
     }
 
-    // Принудительное обновление (просто запрашиваем статус – но MQTT сам присылает)
     function refreshStatus() {
-        // Можно отправить команду "status", если она предусмотрена. Обычно ESP публикует статус сама.
         console.log("Refresh requested — данные будут получены по MQTT");
     }
 
-    // Функции для калибровки и конфигурации
+    // Калибровка и конфиг — заглушки (можно доработать)
     function exportConfig() {
-        alert("Экспорт конфигурации работает только через HTTP. В MQTT версии эта функция не реализована. Можно вернуться к HTTP для калибровки.");
-        // Для полной функциональности нужно оставить HTTP эндпоинты на ESP32, но тогда доступ будет локальным.
+        alert("Экспорт конфигурации в MQTT версии не поддерживается.\nИспользуйте локальный HTTP доступ, если необходимо.");
     }
     function importConfig(fileInput) {
-        alert("Импорт конфигурации в MQTT версии не поддерживается. Используйте локальный HTTP доступ.");
+        alert("Импорт конфигурации в MQTT версии не поддерживается.");
     }
     function takePhoto() {
+        // Если камера не настроена — просто открываем новое окно с HTTP (не будет работать удалённо, но для демо)
         window.open('http://193.187.93.181/photo?' + new Date().getTime(), '_blank');
     }
 
-    // Графики (загрузка истории)
-    function loadHistoryData(historyArray) {
-        // historyArray: массив объектов {t, temp, hum, soil}
-        if (!historyArray || !historyArray.length) return;
-        const labels = historyArray.map(p => new Date(p.t*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));
-        const temps = historyArray.map(p => p.temp);
-        const hums = historyArray.map(p => p.hum);
-        const soils = historyArray.map(p => p.soil);
-        if (chart1) chart1.destroy();
-        if (chart2) chart2.destroy();
-        const ctx1 = document.getElementById('chart1').getContext('2d');
-        chart1 = new Chart(ctx1, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    { label: 'Температура °C', data: temps, borderColor: 'red', yAxisID: 'y' },
-                    { label: 'Влажность %', data: hums, borderColor: 'blue', yAxisID: 'y1' }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: { type: 'linear', position: 'left' },
-                    y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false } }
-                }
-            }
-        });
-        const ctx2 = document.getElementById('chart2').getContext('2d');
-        chart2 = new Chart(ctx2, {
-            type: 'line',
-            data: { labels: labels, datasets: [{ label: 'Влажность почвы %', data: soils, borderColor: 'green' }] },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
-    }
-
-    // Тёмная тема (копия из оригинала)
+    // Тёмная тема
     function toggleTheme() {
         const body = document.body;
         const theme = body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
@@ -445,12 +490,13 @@
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelector(`.tab[data-tab="${tabId}"]`).classList.add('active');
         if (tabId === 'graphs') {
-            // При необходимости можно запросить историю по MQTT
-            // mqttClient.publish("greenhouse/request_history", "1");
+            // При переключении на графики обновим их
+            if (chart1) chart1.update();
+            if (chart2) chart2.update();
         }
     }
 
-    // Обработчики кнопок (data-cmd)
+    // Обработчики кнопок
     function bindCommands() {
         document.querySelectorAll('[data-cmd]').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -462,7 +508,6 @@
             const val = document.getElementById('max_pump').value;
             sendCommand('set_max_pump', val);
         });
-        // Переназначаем старые onclick обработчики, чтобы избежать конфликтов
         document.querySelectorAll('.tab').forEach(tab => {
             const tabId = tab.getAttribute('data-tab');
             if (tabId) tab.onclick = () => showTab(tabId);
@@ -471,13 +516,9 @@
 
     // Старт
     window.addEventListener('DOMContentLoaded', () => {
+        initCharts();
         connectMQTT();
         bindCommands();
-        // Инициализация пустых графиков (пока нет истории)
-        const ctx1 = document.getElementById('chart1').getContext('2d');
-        chart1 = new Chart(ctx1, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true } });
-        const ctx2 = document.getElementById('chart2').getContext('2d');
-        chart2 = new Chart(ctx2, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true } });
     });
 </script>
 </body>
